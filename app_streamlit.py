@@ -8,9 +8,36 @@ import io
 import tensorflow as tf
 
 
-MODEL_PATH = r"D:\focuslens_app\model_final.h5"  # lokasi model lokal
+MODEL_PATH = r"D:\focuslens_app\model_final.h5"  
 IMG_SIZE = 128
 CLASS_NAMES = ["Fokus", "Bosan", "Distraksi"]
+import os, zipfile, pathlib, subprocess
+
+
+MODEL_DIR = pathlib.Path("model_sm")    
+MODEL_ZIP = pathlib.Path("model_sm.zip") 
+DRIVE_FILE_ID = "1hF6ZYZY_ecaKZs-JrE39lyT_YLXjXDFU"  
+
+def ensure_model_available():
+    """Unduh dan ekstrak model bila belum ada di folder kerja"""
+    if MODEL_DIR.is_dir():
+        return
+    try:
+        import gdown
+    except Exception:
+        subprocess.run(["pip", "install", "-q", "gdown"], check=True)
+        import gdown
+    url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
+    print("Mengunduh model dari Google Drive...")
+    gdown.download(url, str(MODEL_ZIP), quiet=False)
+    print("Ekstrak model...")
+    with zipfile.ZipFile(MODEL_ZIP, "r") as zf:
+        zf.extractall(".")
+    MODEL_ZIP.unlink(missing_ok=True)
+    print("Model siap digunakan.")
+
+
+ensure_model_available()
 
 
 @st.cache_resource
@@ -83,3 +110,4 @@ with tab2:
         })
 
 st.caption("Model dimuat dari lokal (D:\\focuslens_app) menggunakan TensorFlow 2.15 dan tf.keras lama.")
+
