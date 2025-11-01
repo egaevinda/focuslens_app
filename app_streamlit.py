@@ -1,12 +1,3 @@
-# app_streamlit.py
-# --------------------------------------------------------------------
-# FocusLens — Klasifikasi Fokus / Bosan / Distraksi (TensorFlow + Streamlit)
-# Kompatibel TF 2.20 / Keras 3 (Python 3.12–3.13)
-# - Auto-download model dari Google Drive (ZIP)
-# - Load .keras / .h5 jika ada; fallback ke SavedModel via TFSMLayer
-# - UI: upload gambar / kamera
-# --------------------------------------------------------------------
-
 import io
 import zipfile
 import pathlib
@@ -20,14 +11,8 @@ import tensorflow as tf
 import keras
 from keras.layers import TFSMLayer
 
-
-# ===================== KONFIGURASI ===========================================
-# GANTI dengan FILE ID Google Drive Anda (ZIP berisi model).
-# ZIP boleh berisi:
-#   - folder SavedModel      -> "model_sm/" (default)
-#   - file tunggal .keras    -> "model_v3.keras"
-#   - file tunggal .h5       -> "model_legacy.h5"
-DRIVE_FILE_ID = "PASTE_GOOGLE_DRIVE_FILE_ID_DI_SINI"   # <--- GANTI ID FILE DI SINI
+#  KONFIGURASI 
+DRIVE_FILE_ID = "1hF6ZYZY_ecaKZs-JrE39lyT_YLXjXDFU"  
 
 # Nama target setelah ekstraksi:
 SAVEDMODEL_DIR = pathlib.Path("model_sm")               # untuk SavedModel (folder)
@@ -38,18 +23,13 @@ MODEL_ZIP      = pathlib.Path("model_artifact.zip")     # nama zip sementara (be
 # Ukuran input & label (samakan dengan training)
 IMG_SIZE = 128
 LABELS = ["Fokus", "Bosan", "Distraksi"]
-# ============================================================================
 
-
-# ===================== UTILITAS MODEL =======================================
+#  UTILITAS MODEL 
 def ensure_model_available() -> None:
-    """
-    Unduh & ekstrak artefak model dari Google Drive jika belum ada di working dir.
-    """
     if SAVEDMODEL_DIR.is_dir() or KERAS_FILE.is_file() or H5_FILE.is_file():
         return
 
-    if not DRIVE_FILE_ID or DRIVE_FILE_ID == "PASTE_GOOGLE_DRIVE_FILE_ID_DI_SINI":
+    if not DRIVE_FILE_ID or DRIVE_FILE_ID == "1hF6ZYZY_ecaKZs-JrE39lyT_YLXjXDFU":
         st.error(
             "Model belum tersedia dan `DRIVE_FILE_ID` belum diisi.\n"
             "Silakan isi variabel DRIVE_FILE_ID dengan ID file Google Drive (ZIP)."
@@ -63,7 +43,7 @@ def ensure_model_available() -> None:
         subprocess.run(["pip", "install", "-q", "gdown"], check=True)
         import gdown  # type: ignore
 
-    url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
+    url = f"https://drive.google.com/uc?id={1hF6ZYZY_ecaKZs-JrE39lyT_YLXjXDFU}"
     with st.spinner("Mengunduh artefak model dari Google Drive..."):
         gdown.download(url, str(MODEL_ZIP), quiet=False)
 
@@ -95,12 +75,11 @@ def _to_probs(y: Union[np.ndarray, tf.Tensor]) -> np.ndarray:
         y = y.numpy()
     y = np.squeeze(y)
 
-    # Jika multi-dim, ratakan sederhana (fallback) — sebaiknya model output (1, num_classes).
-    if y.ndim > 1:
+        if y.ndim > 1:
         y = np.mean(y, axis=tuple(range(y.ndim - 1)))
 
     y = y.astype("float64")
-    # Jika bukan probabilitas, softmax-kan
+  
     if (y < 0).any() or (y > 1).any() or not np.isclose(np.sum(y), 1.0, atol=1e-3):
         ex = np.exp(y - np.max(y))
         y = ex / np.sum(ex)
@@ -128,13 +107,13 @@ def load_any_model():
         m = tf.keras.models.load_model(str(H5_FILE), compile=False)
         return m, "keras"
 
-    # 3) SavedModel via load_model (kadang masih kompatibel)
+    # 3) SavedModel via load_model 
     if SAVEDMODEL_DIR.is_dir():
         try:
             m = tf.keras.models.load_model(str(SAVEDMODEL_DIR), compile=False)
             return m, "keras"
         except Exception:
-            # 4) Fallback: TFSMLayer (Keras 3 cara resmi untuk SavedModel lama)
+            # 4) Fallback: TFSMLayer 
             m = TFSMLayer(str(SAVEDMODEL_DIR), call_endpoint="serving_default")
             return m, "tfsm"
 
@@ -149,9 +128,9 @@ def predict_one(model, mode: str, rgb01: np.ndarray) -> Tuple[np.ndarray, int]:
     Jalankan inferensi 1 sampel. Mode “keras” atau “tfsm”.
     """
     x = tf.convert_to_tensor(rgb01[None, ...], dtype=tf.float32)
-    y = model(x)  # KerasModel & TFSMLayer sama-sama callable
+    y = model(x)  
 
-    # TFSMLayer bisa mengembalikan dict/list
+
     if isinstance(y, dict):
         y = next(iter(y.values()))
     elif isinstance(y, (list, tuple)):
@@ -162,21 +141,20 @@ def predict_one(model, mode: str, rgb01: np.ndarray) -> Tuple[np.ndarray, int]:
     return probs, idx
 
 
-# ===================== UTILITAS UI ==========================================
+#  UTILITAS UI 
 def show_image_safe(pil_img: Image.Image, caption: str = "Input"):
     try:
         arr = np.asarray(pil_img.convert("RGB"))
-        # gunakan argumen yang didukung versi Streamlit di Cloud
+       
         st.image(arr, caption=caption, use_column_width=True)
-        # alternatif aman (tanpa argumen lebar):
-        # st.image(arr, caption=caption)
+      
     except Exception as e:
         st.warning("Gagal menampilkan gambar. Menampilkan detail error:")
         st.exception(e)
 
 
 
-# ===================== STREAMLIT APP ========================================
+#  STREAMLIT APP 
 def main():
     st.set_page_config(page_title="FocusLens", page_icon="🎯", layout="centered")
 
@@ -248,4 +226,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
