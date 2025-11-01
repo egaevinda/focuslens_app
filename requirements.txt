@@ -1,16 +1,9 @@
 streamlit==1.39.0
 tensorflow==2.20.0
-numpy==1.26.4
-pillow==10.4.0
-opencv-python-headless==4.13.0.84
+numpy>=2.1.0
+pillow>=10.4.0,<11
+opencv-python-headless==4.10.0.84
 gdown==5.2.0
-
-
-
-
-
-
-
-
-
-
+# Penstabil opsional jika diperlukan:
+protobuf<5
+h5py>=3.11.0
