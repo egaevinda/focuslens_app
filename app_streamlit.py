@@ -170,7 +170,7 @@ def main():
 #     - Artefak model yang didukung: `.keras / .h5 / SavedModel (folder)`
 #     """)
 
-        )
+        
 
     # Pastikan model tersedia
     ensure_model_available()
@@ -231,6 +231,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
