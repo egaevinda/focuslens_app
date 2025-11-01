@@ -27,7 +27,7 @@ Model CNN dibangun menggunakan TensorFlow 2.17 dengan preprocessing:
 
 ---
 
-## ⚙️ Instalasi Lokal (Opsional)
+## ⚙️ Instalasi Lokal
 Jika ingin menjalankan di komputer lokal:
 
 ```bash
