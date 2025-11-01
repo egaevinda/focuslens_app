@@ -1,3 +1,12 @@
+# app_streamlit.py
+# --------------------------------------------------------------------
+# FocusLens — Klasifikasi Fokus / Bosan / Distraksi (TensorFlow + Streamlit)
+# Kompatibel TF 2.20 / Keras 3 (Python 3.12–3.13)
+# - Auto-download model dari Google Drive (ZIP)
+# - Load .keras / .h5 jika ada; fallback ke SavedModel via TFSMLayer
+# - UI: upload gambar / kamera
+# --------------------------------------------------------------------
+
 import io
 import zipfile
 import pathlib
@@ -12,40 +21,49 @@ import keras
 from keras.layers import TFSMLayer
 
 
+# ===================== KONFIGURASI ===========================================
+# GANTI dengan FILE ID Google Drive Anda (ZIP berisi model).
+# ZIP boleh berisi:
+#   - folder SavedModel      -> "model_sm/" (default)
+#   - file tunggal .keras    -> "model_v3.keras"
+#   - file tunggal .h5       -> "model_legacy.h5"
+DRIVE_FILE_ID = "PASTE_GOOGLE_DRIVE_FILE_ID_DI_SINI"   # <--- GANTI ID FILE DI SINI
 
-DRIVE_FILE_ID = "1hF6ZYZY_ecaKZs-JrE39lyT_YLXjXDFU" 
+# Nama target setelah ekstraksi:
+SAVEDMODEL_DIR = pathlib.Path("model_sm")               # untuk SavedModel (folder)
+KERAS_FILE     = pathlib.Path("model_v3.keras")         # opsional (jika upload .keras)
+H5_FILE        = pathlib.Path("model_legacy.h5")        # opsional (jika upload .h5)
+MODEL_ZIP      = pathlib.Path("model_artifact.zip")     # nama zip sementara (bebas)
 
-
-SAVEDMODEL_DIR = pathlib.Path("model_sm")             
-KERAS_FILE = pathlib.Path("model_v3.keras")           
-H5_FILE = pathlib.Path("model_legacy.h5")  
-MODEL_ZIP = pathlib.Path("model_artifact.zip") 
-
+# Ukuran input & label (samakan dengan training)
 IMG_SIZE = 128
 LABELS = ["Fokus", "Bosan", "Distraksi"]
 # ============================================================================
 
 
-def ensure_model_available():
-    
+# ===================== UTILITAS MODEL =======================================
+def ensure_model_available() -> None:
+    """
+    Unduh & ekstrak artefak model dari Google Drive jika belum ada di working dir.
+    """
     if SAVEDMODEL_DIR.is_dir() or KERAS_FILE.is_file() or H5_FILE.is_file():
         return
 
-    if not DRIVE_FILE_ID or DRIVE_FILE_ID == "1hF6ZYZY_ecaKZs-JrE39lyT_YLXjXDFU":
+    if not DRIVE_FILE_ID or DRIVE_FILE_ID == "PASTE_GOOGLE_DRIVE_FILE_ID_DI_SINI":
         st.error(
-            "Model belum tersedia dan DRIVE_FILE_ID belum diisi.\n"
-            "Silakan isi variabel DRIVE_FILE_ID dengan ID file Google Drive."
+            "Model belum tersedia dan `DRIVE_FILE_ID` belum diisi.\n"
+            "Silakan isi variabel DRIVE_FILE_ID dengan ID file Google Drive (ZIP)."
         )
         st.stop()
 
+    # Pastikan gdown tersedia
     try:
-        import gdown 
+        import gdown  # type: ignore
     except Exception:
         subprocess.run(["pip", "install", "-q", "gdown"], check=True)
-        import gdown  
+        import gdown  # type: ignore
 
     url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
-
     with st.spinner("Mengunduh artefak model dari Google Drive..."):
         gdown.download(url, str(MODEL_ZIP), quiet=False)
 
@@ -59,61 +77,81 @@ def ensure_model_available():
         pass
 
 
-#  Preprocess & Prediksi 
 def preprocess(pil_img: Image.Image) -> np.ndarray:
-    """RGB -> resize -> normalisasi [0,1]. Return (H,W,3) float32."""
+    """
+    Konversi ke RGB → resize (IMG_SIZE) → normalisasi [0,1].
+    Return: (H, W, 3) float32
+    """
     pil_img = pil_img.convert("RGB").resize((IMG_SIZE, IMG_SIZE))
     arr = np.asarray(pil_img, dtype=np.float32) / 255.0
     return arr
 
 
 def _to_probs(y: Union[np.ndarray, tf.Tensor]) -> np.ndarray:
-    """Pastikan output berupa probabilitas 1D np.float64/32 (apply softmax jika perlu)."""
+    """
+    Pastikan output berupa probabilitas 1D. Jika bukan (logits), lakukan softmax.
+    """
     if isinstance(y, tf.Tensor):
         y = y.numpy()
     y = np.squeeze(y)
 
+    # Jika multi-dim, ratakan sederhana (fallback) — sebaiknya model output (1, num_classes).
     if y.ndim > 1:
-        y = np.mean(y, axis=tuple(range(y.ndim - 1)))  
+        y = np.mean(y, axis=tuple(range(y.ndim - 1)))
+
     y = y.astype("float64")
+    # Jika bukan probabilitas, softmax-kan
     if (y < 0).any() or (y > 1).any() or not np.isclose(np.sum(y), 1.0, atol=1e-3):
-        
         ex = np.exp(y - np.max(y))
         y = ex / np.sum(ex)
     return y
 
 
-#  Load model dengan cache 
 @st.cache_resource(show_spinner=False)
 def load_any_model():
-    
+    """
+    Urutan pemuatan:
+      1) .keras
+      2) .h5
+      3) SavedModel via load_model (jika kompatibel)
+      4) Fallback SavedModel via TFSMLayer (inference-only)
+    Return:
+      (model_callable, mode) — mode ∈ {"keras", "tfsm"}
+    """
+    # 1) .keras
     if KERAS_FILE.is_file():
         m = tf.keras.models.load_model(str(KERAS_FILE), compile=False)
         return m, "keras"
 
+    # 2) .h5 (legacy)
     if H5_FILE.is_file():
         m = tf.keras.models.load_model(str(H5_FILE), compile=False)
         return m, "keras"
 
+    # 3) SavedModel via load_model (kadang masih kompatibel)
     if SAVEDMODEL_DIR.is_dir():
         try:
             m = tf.keras.models.load_model(str(SAVEDMODEL_DIR), compile=False)
             return m, "keras"
         except Exception:
-           
+            # 4) Fallback: TFSMLayer (Keras 3 cara resmi untuk SavedModel lama)
             m = TFSMLayer(str(SAVEDMODEL_DIR), call_endpoint="serving_default")
             return m, "tfsm"
 
     raise FileNotFoundError(
         "Tidak menemukan model (.keras / .h5 / folder SavedModel). "
-        "Pastikan ZIP berisi salah satu dari ketiganya."
+        "Pastikan ZIP berisi salah satunya."
     )
 
 
 def predict_one(model, mode: str, rgb01: np.ndarray) -> Tuple[np.ndarray, int]:
+    """
+    Jalankan inferensi 1 sampel. Mode “keras” atau “tfsm”.
+    """
     x = tf.convert_to_tensor(rgb01[None, ...], dtype=tf.float32)
-    y = model(x)  
+    y = model(x)  # KerasModel & TFSMLayer sama-sama callable
 
+    # TFSMLayer bisa mengembalikan dict/list
     if isinstance(y, dict):
         y = next(iter(y.values()))
     elif isinstance(y, (list, tuple)):
@@ -123,7 +161,8 @@ def predict_one(model, mode: str, rgb01: np.ndarray) -> Tuple[np.ndarray, int]:
     idx = int(np.argmax(probs))
     return probs, idx
 
-#  UTILITAS UI 
+
+# ===================== UTILITAS UI ==========================================
 def show_image_safe(pil_img: Image.Image, caption: str = "Input") -> None:
     """
     Tampilkan gambar dengan aman di Streamlit Cloud:
@@ -135,8 +174,9 @@ def show_image_safe(pil_img: Image.Image, caption: str = "Input") -> None:
     except Exception as e:
         st.warning("Gagal menampilkan gambar. Menampilkan detail error:")
         st.exception(e)
-        
-#  Aplikasi Streamlit 
+
+
+# ===================== STREAMLIT APP ========================================
 def main():
     st.set_page_config(page_title="FocusLens", page_icon="🎯", layout="centered")
 
@@ -146,10 +186,10 @@ def main():
     with st.expander("ℹ️ Info runtime", expanded=False):
         st.write(
             f"- TensorFlow: `{tf.__version__}` • Keras: `{keras.__version__}`\n"
-            f"- Python runtime: kompatibel dengan Keras 3 (TF 2.20)\n"
-            f"- Artefak model: `.keras` / `.h5` / SavedModel (folder)"
+            f"- Artefak model yang didukung: `.keras` / `.h5` / SavedModel (folder)"
         )
 
+    # Pastikan model tersedia
     ensure_model_available()
 
     # Load model
@@ -160,15 +200,14 @@ def main():
     except Exception as e:
         st.error(
             "Gagal memuat model: "
-            f"{e}\n\nJika pesan menyebut SavedModel legacy, "
-            "gunakan fallback ini atau simpan ulang model menjadi `.keras` / `.h5`."
+            f"{e}\n\nJika pesan menyebut SavedModel legacy, gunakan fallback TFSMLayer ini "
+            "atau simpan ulang model sebagai `.keras` / `.h5`."
         )
         st.stop()
 
-    
-    tab1, tab2 = st.tabs(["📤 Upload Gambar", "📸 Kamera (snapshot)"])
+    tab_upload, tab_cam = st.tabs(["📤 Upload Gambar", "📸 Kamera (snapshot)"])
 
-   # ---- Upload ----
+    # ---- Upload ----
     with tab_upload:
         f = st.file_uploader("Pilih gambar (jpg/png)", type=["jpg", "jpeg", "png"])
         if f is not None:
@@ -207,8 +246,5 @@ def main():
     )
 
 
-
-
 if __name__ == "__main__":
     main()
-
