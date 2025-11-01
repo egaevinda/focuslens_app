@@ -163,17 +163,17 @@ def predict_one(model, mode: str, rgb01: np.ndarray) -> Tuple[np.ndarray, int]:
 
 
 # ===================== UTILITAS UI ==========================================
-def show_image_safe(pil_img: Image.Image, caption: str = "Input") -> None:
-    """
-    Tampilkan gambar dengan aman di Streamlit Cloud:
-    konversi ke RGB dan kirim sebagai NumPy array.
-    """
+def show_image_safe(pil_img: Image.Image, caption: str = "Input"):
     try:
         arr = np.asarray(pil_img.convert("RGB"))
-        st.image(arr, caption=caption, use_container_width=True)
+        # gunakan argumen yang didukung versi Streamlit di Cloud
+        st.image(arr, caption=caption, use_column_width=True)
+        # alternatif aman (tanpa argumen lebar):
+        # st.image(arr, caption=caption)
     except Exception as e:
         st.warning("Gagal menampilkan gambar. Menampilkan detail error:")
         st.exception(e)
+
 
 
 # ===================== STREAMLIT APP ========================================
@@ -248,3 +248,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
