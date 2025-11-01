@@ -1,113 +1,142 @@
 import os
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # biar log TensorFlow tidak terlalu panjang
+import io
+import zipfile
+import pathlib
+import subprocess
+from typing import Tuple
 
-import streamlit as st
 import numpy as np
 from PIL import Image
-import io
+import streamlit as st
 import tensorflow as tf
 
 
-MODEL_PATH = r"D:\focuslens_app\model_final.h5"  
-IMG_SIZE = 128
-CLASS_NAMES = ["Fokus", "Bosan", "Distraksi"]
-import os, zipfile, pathlib, subprocess
-
-
-MODEL_DIR = pathlib.Path("model_sm")    
-MODEL_ZIP = pathlib.Path("model_sm.zip") 
 DRIVE_FILE_ID = "1hF6ZYZY_ecaKZs-JrE39lyT_YLXjXDFU"  
 
-def ensure_model_available():
-    """Unduh dan ekstrak model bila belum ada di folder kerja"""
+MODEL_DIR = pathlib.Path("model_sm")
+
+MODEL_ZIP = pathlib.Path("model_sm.zip")
+
+IMG_SIZE = 128
+
+LABELS = ["Fokus", "Bosan", "Distraksi"]
+
+
+def ensure_model_available() -> None:
+    """Unduh & ekstrak model SavedModel dari Google Drive jika belum ada."""
     if MODEL_DIR.is_dir():
         return
+
+    if not DRIVE_FILE_ID or DRIVE_FILE_ID == "PASTE_GOOGLE_DRIVE_FILE_ID_DI_SINI":
+        st.error(
+            "Folder model tidak ditemukan dan `DRIVE_FILE_ID` belum diisi.\n"
+            "Isi variabel DRIVE_FILE_ID dengan ID file Google Drive untuk model_sm.zip."
+        )
+        st.stop()
+
+
     try:
-        import gdown
+        import gdown  
     except Exception:
         subprocess.run(["pip", "install", "-q", "gdown"], check=True)
-        import gdown
+        import gdown  
+
     url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
-    print("Mengunduh model dari Google Drive...")
-    gdown.download(url, str(MODEL_ZIP), quiet=False)
-    print("Ekstrak model...")
-    with zipfile.ZipFile(MODEL_ZIP, "r") as zf:
-        zf.extractall(".")
-    MODEL_ZIP.unlink(missing_ok=True)
-    print("Model siap digunakan.")
+    with st.spinner("Mengunduh model dari Google Drive..."):
+        gdown.download(url, str(MODEL_ZIP), quiet=False)
 
+    with st.spinner("Mengekstrak model..."):
+        with zipfile.ZipFile(MODEL_ZIP, "r") as zf:
+            zf.extractall(".")
 
-ensure_model_available()
-
-
-@st.cache_resource
-def load_model():
-    if not os.path.exists(MODEL_PATH):
-        st.error(f"❌ File model tidak ditemukan di:\n{MODEL_PATH}\nPastikan file model_final.h5 ada di folder tersebut.")
-        st.stop()
+   
     try:
-        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-        st.success("✅ Model berhasil dimuat dari lokal!")
-        return model
-    except Exception as e:
-        st.error(f"Gagal memuat model TensorFlow (.h5):\n\n{e}")
-        st.stop()
-
-model = load_model()
+        MODEL_ZIP.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
-def preprocess_image(image: Image.Image) -> np.ndarray:
-    """Ubah gambar menjadi array siap diprediksi."""
-    img = image.convert("RGB").resize((IMG_SIZE, IMG_SIZE))
-    img_array = np.array(img) / 255.0
-    return img_array
+# Preprocessing & Prediksi
+def preprocess(pil_img: Image.Image) -> np.ndarray:
+    """RGB->resize->normalisasi [0,1], return (H,W,3) float32."""
+    pil_img = pil_img.convert("RGB").resize((IMG_SIZE, IMG_SIZE))
+    arr = np.asarray(pil_img, dtype=np.float32) / 255.0
+    return arr
 
-def predict_image(model, img_array):
-    """Prediksi satu gambar."""
-    preds = model.predict(np.expand_dims(img_array, axis=0), verbose=0)
-    probs = preds[0]
-    idx = np.argmax(probs)
+
+def predict_one(model: tf.keras.Model, rgb01: np.ndarray) -> Tuple[np.ndarray, int]:
+    probs = model.predict(np.expand_dims(rgb01, 0), verbose=0)[0]
+    idx = int(np.argmax(probs))
     return probs, idx
 
 
-st.set_page_config(page_title="FocusLens", page_icon="🎯", layout="centered")
-st.title("🎯 FocusLens — Klasifikasi Fokus / Bosan / Distraksi (TensorFlow Lokal)")
+# Load model dengan cache 
+@st.cache_resource(show_spinner=False)
+def load_model_cached() -> tf.keras.Model:
+    if not MODEL_DIR.is_dir():
+        raise FileNotFoundError(
+            f"Folder model tidak ditemukan: {MODEL_DIR.resolve()}\n"
+            "Pastikan sudah diunduh otomatis dari Google Drive atau commit ke repo."
+        )
+    
+    model = tf.keras.models.load_model(str(MODEL_DIR), compile=False)
+    return model
 
-tab1, tab2 = st.tabs(["📤 Upload Gambar", "📸 Kamera Langsung"])
 
-with tab1:
-    uploaded_file = st.file_uploader("Upload gambar wajah (jpg/png)", type=["jpg", "jpeg", "png"])
-    if uploaded_file:
-        image = Image.open(uploaded_file)
-        st.image(image, caption="Gambar Input", use_container_width=True)
+#  Aplikasi Streamlit
+def main():
+    st.set_page_config(page_title="FocusLens", page_icon="🎯", layout="centered")
 
-        img_array = preprocess_image(image)
-        with st.spinner("🔍 Memprediksi..."):
-            probs, idx = predict_image(model, img_array)
+   
+    ensure_model_available()
 
-        st.subheader(f"📊 Hasil Prediksi: **{CLASS_NAMES[idx]}**")
-        st.bar_chart({
-            "Fokus": [probs[0]],
-            "Bosan": [probs[1]],
-            "Distraksi": [probs[2]]
-        })
+   
+    st.title("🎯 FocusLens — Klasifikasi **Fokus / Bosan / Distraksi**")
+    st.caption("TensorFlow + Streamlit • Input: gambar / kamera • Output: 3 kelas")
 
-with tab2:
-    cam_image = st.camera_input("Ambil foto dari kamera")
-    if cam_image:
-        image = Image.open(io.BytesIO(cam_image.getvalue()))
-        st.image(image, caption="Snapshot Kamera", use_container_width=True)
+    with st.expander("ℹ️ Info runtime", expanded=False):
+        st.write(
+            f"- TensorFlow: `{tf.__version__}`\n"
+            f"- Model folder: `{MODEL_DIR.resolve()}`"
+        )
 
-        img_array = preprocess_image(image)
-        with st.spinner("🔍 Memprediksi..."):
-            probs, idx = predict_image(model, img_array)
+    try:
+        with st.spinner("Memuat model..."):
+            model = load_model_cached()
+    except Exception as e:
+        st.error(f"Gagal memuat model: {e}")
+        st.stop()
 
-        st.subheader(f"📊 Hasil Prediksi Kamera: **{CLASS_NAMES[idx]}**")
-        st.bar_chart({
-            "Fokus": [probs[0]],
-            "Bosan": [probs[1]],
-            "Distraksi": [probs[2]]
-        })
+    tab1, tab2 = st.tabs(["📤 Upload Gambar", "📸 Kamera (snapshot)"])
 
-st.caption("Model dimuat dari lokal (D:\\focuslens_app) menggunakan TensorFlow 2.15 dan tf.keras lama.")
+    with tab1:
+        f = st.file_uploader("Pilih gambar (jpg/png)", type=["jpg", "jpeg", "png"])
+        if f is not None:
+            pil = Image.open(f)
+            st.image(pil, caption="Input", use_container_width=True)
+            rgb01 = preprocess(pil)
+            with st.spinner("Memprediksi..."):
+                probs, idx = predict_one(model, rgb01)
+            st.subheader(f"Hasil: **{LABELS[idx]}**")
+            st.bar_chart({LABELS[i]: float(probs[i]) for i in range(len(LABELS))})
 
+    with tab2:
+        snap = st.camera_input("Ambil snapshot wajah")
+        if snap is not None:
+            pil = Image.open(io.BytesIO(snap.getvalue()))
+            st.image(pil, caption="Snapshot", use_container_width=True)
+            rgb01 = preprocess(pil)
+            with st.spinner("Memprediksi..."):
+                probs, idx = predict_one(model, rgb01)
+            st.subheader(f"Hasil: **{LABELS[idx]}**")
+            st.bar_chart({LABELS[i]: float(probs[i]) for i in range(len(LABELS))})
+
+    st.markdown("---")
+    st.caption(
+        "Tips: hasil lebih stabil jika wajah jelas, frontal, dan pencahayaan cukup. "
+        "Pastikan ukuran input training sama (IMG_SIZE)."
+    )
+
+
+if __name__ == "__main__":
+    main()
