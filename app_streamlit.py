@@ -43,7 +43,7 @@ def ensure_model_available() -> None:
         subprocess.run(["pip", "install", "-q", "gdown"], check=True)
         import gdown  # type: ignore
 
-    url = f"https://drive.google.com/uc?id={1hF6ZYZY_ecaKZs-JrE39lyT_YLXjXDFU}"
+    url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
     with st.spinner("Mengunduh artefak model dari Google Drive..."):
         gdown.download(url, str(MODEL_ZIP), quiet=False)
 
@@ -226,5 +226,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
