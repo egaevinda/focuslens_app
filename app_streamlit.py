@@ -1,9 +1,8 @@
-import os
 import io
 import zipfile
 import pathlib
 import subprocess
-from typing import Tuple, Union, Dict, Any
+from typing import Tuple, Union
 
 import numpy as np
 from PIL import Image
@@ -11,6 +10,8 @@ import streamlit as st
 import tensorflow as tf
 import keras
 from keras.layers import TFSMLayer
+
+
 
 DRIVE_FILE_ID = "1hF6ZYZY_ecaKZs-JrE39lyT_YLXjXDFU" 
 
@@ -85,15 +86,7 @@ def _to_probs(y: Union[np.ndarray, tf.Tensor]) -> np.ndarray:
 #  Load model dengan cache 
 @st.cache_resource(show_spinner=False)
 def load_any_model():
-    """
-    Urutan:
-      1) Coba load file .keras
-      2) Coba load file .h5
-      3) Coba load folder SavedModel lewat Keras (jika kebetulan kompatibel)
-      4) Fallback: SavedModel via TFSMLayer (inference-only)
-    Return:
-      (callable_model, mode) — mode in {"keras", "tfsm"}
-    """
+    
     if KERAS_FILE.is_file():
         m = tf.keras.models.load_model(str(KERAS_FILE), compile=False)
         return m, "keras"
@@ -130,7 +123,19 @@ def predict_one(model, mode: str, rgb01: np.ndarray) -> Tuple[np.ndarray, int]:
     idx = int(np.argmax(probs))
     return probs, idx
 
-
+#  UTILITAS UI 
+def show_image_safe(pil_img: Image.Image, caption: str = "Input") -> None:
+    """
+    Tampilkan gambar dengan aman di Streamlit Cloud:
+    konversi ke RGB dan kirim sebagai NumPy array.
+    """
+    try:
+        arr = np.asarray(pil_img.convert("RGB"))
+        st.image(arr, caption=caption, use_container_width=True)
+    except Exception as e:
+        st.warning("Gagal menampilkan gambar. Menampilkan detail error:")
+        st.exception(e)
+        
 #  Aplikasi Streamlit 
 def main():
     st.set_page_config(page_title="FocusLens", page_icon="🎯", layout="centered")
@@ -163,34 +168,47 @@ def main():
     
     tab1, tab2 = st.tabs(["📤 Upload Gambar", "📸 Kamera (snapshot)"])
 
-    with tab1:
+   # ---- Upload ----
+    with tab_upload:
         f = st.file_uploader("Pilih gambar (jpg/png)", type=["jpg", "jpeg", "png"])
         if f is not None:
-            pil = Image.open(f)
-            st.image(pil, caption="Input", use_container_width=True)
-            rgb01 = preprocess(pil)
-            with st.spinner("Memprediksi..."):
-                probs, idx = predict_one(model, mode, rgb01)
-            st.subheader(f"Hasil: **{LABELS[idx]}**")
-            st.bar_chart({LABELS[i]: float(probs[i]) for i in range(len(LABELS))})
+            try:
+                pil = Image.open(f)
+            except Exception as e:
+                st.error(f"Gambar tidak dapat dibuka: {e}")
+            else:
+                show_image_safe(pil, caption="Input")
+                rgb01 = preprocess(pil)
+                with st.spinner("Memprediksi..."):
+                    probs, idx = predict_one(model, mode, rgb01)
+                st.subheader(f"Hasil: **{LABELS[idx]}**")
+                st.bar_chart({LABELS[i]: float(probs[i]) for i in range(len(LABELS))})
 
-    with tab2:
+    # ---- Kamera ----
+    with tab_cam:
         snap = st.camera_input("Ambil snapshot wajah")
         if snap is not None:
-            pil = Image.open(io.BytesIO(snap.getvalue()))
-            st.image(pil, caption="Snapshot", use_container_width=True)
-            rgb01 = preprocess(pil)
-            with st.spinner("Memprediksi..."):
-                probs, idx = predict_one(model, mode, rgb01)
-            st.subheader(f"Hasil: **{LABELS[idx]}**")
-            st.bar_chart({LABELS[i]: float(probs[i]) for i in range(len(LABELS))})
+            try:
+                pil = Image.open(io.BytesIO(snap.getvalue()))
+            except Exception as e:
+                st.error(f"Snapshot tidak dapat dibuka: {e}")
+            else:
+                show_image_safe(pil, caption="Snapshot")
+                rgb01 = preprocess(pil)
+                with st.spinner("Memprediksi..."):
+                    probs, idx = predict_one(model, mode, rgb01)
+                st.subheader(f"Hasil: **{LABELS[idx]}**")
+                st.bar_chart({LABELS[i]: float(probs[i]) for i in range(len(LABELS))})
 
     st.markdown("---")
     st.caption(
-        "Catatan: jika output SavedModel bukan probabilitas, sistem akan "
-        "mengaplikasikan softmax otomatis agar dapat dipetakan ke 3 kelas."
+        "Jika model mengembalikan logits, sistem menerapkan softmax otomatis agar "
+        "dapat dipetakan ke 3 kelas (Fokus/Bosan/Distraksi)."
     )
+
+
 
 
 if __name__ == "__main__":
     main()
+
