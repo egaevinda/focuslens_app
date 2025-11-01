@@ -163,10 +163,7 @@ def main():
     st.title("🎯 FocusLens — Klasifikasi **Fokus / Bosan / Distraksi**")
     st.caption("TensorFlow + Streamlit • Input: gambar / kamera • Output: 3 kelas")
 
-    with st.expander("ℹ️ Info runtime", expanded=False):
-        st.write(
-            f"- TensorFlow: `{tf.__version__}` • Keras: `{keras.__version__}`\n"
-            f"- Artefak model yang didukung: `.keras` / `.h5` / SavedModel (folder)"
+   
         )
 
     # Pastikan model tersedia
@@ -228,6 +225,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
