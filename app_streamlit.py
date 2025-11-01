@@ -75,8 +75,10 @@ def _to_probs(y: Union[np.ndarray, tf.Tensor]) -> np.ndarray:
         y = y.numpy()
     y = np.squeeze(y)
 
-        if y.ndim > 1:
+    # Jika multi-dim, ratakan sederhana (fallback) — sebaiknya model output (1, num_classes).
+    if y.ndim > 1:
         y = np.mean(y, axis=tuple(range(y.ndim - 1)))
+
 
     y = y.astype("float64")
   
@@ -226,6 +228,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
